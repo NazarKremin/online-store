@@ -1,7 +1,9 @@
-const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const ApiError = require('../error/ApiError');
+const { emailActions } = require('../constans');
 const { User, Basket } = require('../models/models');
+const { mailService } = require('../service');
+const { passwordHash } = require('../helper');
 
 const generateJwt = (id, email, role) => jwt.sign(
     { id, email, role },
@@ -14,6 +16,8 @@ module.exports = {
         try {
             const { email, password, role } = req.body;
 
+            const hashPassword = await passwordHash.hash(password);
+
             if (!email || !password) {
                 return next(ApiError.badRequest('Некорректный email или password'));
             }
@@ -22,13 +26,16 @@ module.exports = {
             if (candidate) {
                 return next(ApiError.badRequest('Пользователь с таким email уже существует'));
             }
-            const hashPassword = await bcrypt.hash(password, 5);
 
             const user = await User.create({ email, role, password: hashPassword });
 
             const basket = await Basket.create({ userId: user.id });
 
             const token = generateJwt(user.id, user.email, user.role);
+
+            await mailService.sendMail(email, emailActions.WELCOME, {
+                userName: email
+            });
 
             // todo sendmailer && hashPassword
 
@@ -48,7 +55,7 @@ module.exports = {
                 return next(ApiError.internal('Пользователь не найден'));
             }
 
-            const comparePassword = bcrypt.compareSync(password, user.password);
+            const comparePassword = passwordHash.compare(password, user.password);
 
             if (!comparePassword) {
                 return next(ApiError.internal('Указан неверный пароль'));
